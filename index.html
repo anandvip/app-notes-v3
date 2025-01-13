@@ -4,12 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enhanced Note Taking App</title>
+    <!-- Include required scripts -->
     <script src="https://unpkg.com/htmx.org@1.9.2"></script>
     <script src="https://unpkg.com/hyperscript.org@0.9.8"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.2/dexie.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <!-- Define styles -->
     <style>
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+        }
         body {
             font-family: Arial, sans-serif;
             margin: 0;
@@ -47,11 +51,8 @@
             padding: 10px;
             margin-bottom: 10px;
         }
-        .formatting-menu {
-            margin-bottom: 10px;
-        }
-        .formatting-menu button {
-            margin-right: 5px;
+        .content {
+            margin-top: 10px;
         }
         .tag {
             background-color: #e0e0e0;
@@ -123,11 +124,13 @@
     </style>
 </head>
 <body>
+    <!-- Left Sidebar -->
     <div id="left-sidebar">
         <h2>Notes</h2>
         <div id="note-list"></div>
     </div>
     
+    <!-- Main Content -->
     <main>
         <header>
             <h1>Enhanced Note Taking App</h1>
@@ -136,18 +139,18 @@
                 <span id="word-count">0 words</span>
             </div>
         </header>
-        
         <div id="note-container"></div>
-        
-        <button hx-get="/new-note" hx-target="#note-container" hx-swap="beforeend">Add Note</button>
+        <button id="add-note-btn">Add Note</button>
     </main>
     
+    <!-- Right Sidebar -->
     <div id="right-sidebar">
         <h2>Projects</h2>
         <div id="project-list"></div>
-        <button onclick="openModal()">New Project</button>
+        <button id="add-project-btn" onclick="openModal()">New Project</button>
     </div>
-
+    
+    <!-- Modal for creating new projects -->
     <div id="modal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal()">&times;</span>
@@ -161,9 +164,11 @@
             </form>
         </div>
     </div>
-
+    
+    <!-- Toast message -->
     <div id="toast"></div>
-
+    
+    <!-- JavaScript code goes here -->
     <script>
         // Database setup
         const db = new Dexie('EnhancedNoteApp');
@@ -171,14 +176,15 @@
             projects: '++id, name, description',
             notes: '++id, projectId, title, content, tags, createdAt, updatedAt'
         });
-
+        
         // Encryption functions
-        const encryptData = (data, key) => CryptoJS.AES.encrypt(JSON.stringify(data), key).toString();
-        const decryptData = (ciphertext, key) => {
+        const key = 'secretKey';
+        const encrypt = (data) => CryptoJS.AES.encrypt(JSON.stringify(data), key).toString();
+        const decrypt = (ciphertext) => {
             const bytes = CryptoJS.AES.decrypt(ciphertext, key);
             return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
         };
-
+        
         // Function to create a new note
         async function createNote(projectId) {
             const note = {
@@ -189,29 +195,17 @@
                 createdAt: new Date(),
                 updatedAt: new Date()
             };
-            const id = await db.notes.add(encryptData(note, 'secretKey'));
+            const id = await db.notes.add(encrypt(note));
             displayNote(id, note);
             updateNoteCounts();
         }
-
+        
         // Function to display a note
         function displayNote(id, note) {
             const noteElement = document.createElement('div');
             noteElement.className = 'note';
+            noteElement.dataset.id = id;
             noteElement.innerHTML = `
-                <div class="formatting-menu">
-                    <button onclick="applyFormat('h1')">H1</button>
-                    <button onclick="applyFormat('h2')">H2</button>
-                    <button onclick="applyFormat('h3')">H3</button>
-                    <button onclick="applyFormat('h4')">H4</button>
-                    <button onclick="applyFormat('bold')">Bold</button>
-                    <button onclick="applyFormat('p')">P</button>
-                    <button onclick="applyFormat('underline')">Underline</button>
-                    <button onclick="applyFormat('italic')">Italic</button>
-                    <button onclick="applyFormat('insertUnorderedList')">UL</button>
-                    <button onclick="applyFormat('insertOrderedList')">OL</button>
-                    <button onclick="applyFormat('strikeThrough')">Strikethrough</button>
-                </div>
                 <h2 contenteditable="true" onblur="updateNoteTitle(${id}, this.innerText)">${note.title}</h2>
                 <div class="content" contenteditable="true" onblur="updateNoteContent(${id}, this.innerHTML)">${note.content}</div>
                 <div class="tags">${note.tags.map(tag => `<span class="tag">${tag}</span>`).join('')}</div>
@@ -219,63 +213,61 @@
             `;
             document.getElementById('note-container').appendChild(noteElement);
         }
-
-        // Function to apply formatting
-        function applyFormat(command) {
-            document.execCommand(command, false, null);
-        }
-
+        
         // Function to update note title
         async function updateNoteTitle(id, newTitle) {
-            const note = decryptData(await db.notes.get(id), 'secretKey');
+            const note = decrypt(await db.notes.get(id));
             note.title = newTitle;
             note.updatedAt = new Date();
-            await db.notes.update(id, encryptData(note, 'secretKey'));
+            await db.notes.put(encrypt(note), id);
             updateNoteList();
             updateNoteCounts();
         }
-
+        
         // Function to update note content
         async function updateNoteContent(id, newContent) {
-            const note = decryptData(await db.notes.get(id), 'secretKey');
+            const note = decrypt(await db.notes.get(id));
             note.content = newContent;
             note.tags = extractTags(newContent);
             note.updatedAt = new Date();
-            await db.notes.update(id, encryptData(note, 'secretKey'));
+            await db.notes.put(encrypt(note), id);
             updateTagList();
             updateNoteCounts();
         }
-
+        
         // Function to delete a note
         async function deleteNote(id) {
             await db.notes.delete(id);
-            document.querySelector(`.note[data-id="${id}"]`).remove();
+            const noteElement = document.querySelector(`.note[data-id="${id}"]`);
+            if (noteElement) {
+                noteElement.remove();
+            }
             updateNoteList();
             updateNoteCounts();
             showToast('Note deleted');
         }
-
+        
         // Function to extract tags from content
         function extractTags(content) {
             const regex = /#(\w+)/g;
             return [...new Set(content.match(regex) || [])].map(tag => tag.slice(1));
         }
-
+        
         // Function to update note list
         async function updateNoteList() {
             const noteList = document.getElementById('note-list');
             noteList.innerHTML = '';
             const notes = await db.notes.toArray();
             notes.forEach(note => {
-                const decryptedNote = decryptData(note, 'secretKey');
+                const decryptedNote = decrypt(note);
                 const noteLink = document.createElement('a');
                 noteLink.href = '#';
                 noteLink.innerText = decryptedNote.title;
-                noteLink.onclick = () => displayNote(note.id, decryptedNote);
+                noteLink.onclick = () => displayNote(decryptedNote.id, decryptedNote);
                 noteList.appendChild(noteLink);
             });
         }
-
+        
         // Function to update project list
         async function updateProjectList() {
             const projectList = document.getElementById('project-list');
@@ -289,21 +281,21 @@
                 projectList.appendChild(projectLink);
             });
         }
-
+        
         // Function to load a project
         async function loadProject(projectId) {
             const notes = await db.notes.where('projectId').equals(projectId).toArray();
             document.getElementById('note-container').innerHTML = '';
-            notes.forEach(note => displayNote(note.id, decryptData(note, 'secretKey')));
+            notes.forEach(note => displayNote(note.id, decrypt(note)));
             updateNoteCounts();
         }
-
+        
         // Function to update tag list
         async function updateTagList() {
-            const tagList = document.createElement('div');
-            tagList.id = 'tag-list';
+            const tagList = document.getElementById('tag-list');
+            tagList.innerHTML = '';
             const notes = await db.notes.toArray();
-            const tags = [...new Set(notes.flatMap(note => decryptData(note, 'secretKey').tags))];
+            const tags = [...new Set(notes.flatMap(note => decrypt(note).tags))];
             tags.forEach(tag => {
                 const tagElement = document.createElement('span');
                 tagElement.className = 'tag';
@@ -311,63 +303,56 @@
                 tagElement.onclick = () => filterNotesByTag(tag);
                 tagList.appendChild(tagElement);
             });
-            document.querySelector('header').appendChild(tagList);
         }
-
+        
         // Function to filter notes by tag
         async function filterNotesByTag(tag) {
             const notes = await db.notes.toArray();
-            const filteredNotes = notes.filter(note => decryptData(note, 'secretKey').tags.includes(tag));
+            const filteredNotes = notes.filter(note => decrypt(note).tags.includes(tag));
             document.getElementById('note-container').innerHTML = '';
-            filteredNotes.forEach(note => displayNote(note.id, decryptData(note, 'secretKey')));
+            filteredNotes.forEach(note => displayNote(note.id, decrypt(note)));
             updateNoteCounts();
         }
-
+        
         // Function to update note and word counts
         async function updateNoteCounts() {
             const notes = await db.notes.toArray();
             const noteCount = notes.length;
             const wordCount = notes.reduce((count, note) => {
-                const decryptedNote = decryptData(note, 'secretKey');
+                const decryptedNote = decrypt(note);
                 return count + decryptedNote.content.trim().split(/\s+/).length;
             }, 0);
             document.getElementById('note-count').textContent = `${noteCount} note${noteCount !== 1 ? 's' : ''}`;
             document.getElementById('word-count').textContent = `${wordCount} word${wordCount !== 1 ? 's' : ''}`;
         }
-
+        
         // Function to open the modal
         function openModal() {
             document.getElementById('modal').style.display = 'block';
         }
-
+        
         // Function to close the modal
         function closeModal() {
             document.getElementById('modal').style.display = 'none';
         }
-
+        
         // Function to show a toast message
         function showToast(message) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
             toast.className = 'show';
-            setTimeout(() => { toast.className = toast.className.replace('show', ''); }, 3000);
+            setTimeout(() => { toast.className = ''; }, 3000);
         }
-
+        
         // Initialize the app
         async function initApp() {
-            // Migrate data from localStorage if needed
-            if (localStorage.getItem('notes')) {
-                const oldNotes = JSON.parse(localStorage.getItem('notes'));
-                await db.notes.bulkAdd(oldNotes.map(note => encryptData(note, 'secretKey')));
-                localStorage.removeItem('notes');
-            }
-
+            await db.open();
             updateNoteList();
             updateProjectList();
             updateTagList();
             updateNoteCounts();
         }
-
+        
         // HTMX handlers
         htmx.on('htmx:afterSettle', function(event) {
             if (event.detail.target.id === 'note-container') {
@@ -378,7 +363,7 @@
                 showToast('Project created successfully');
             }
         });
-
+        
         // Start the app
         initApp();
     </script>
